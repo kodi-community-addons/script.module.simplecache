@@ -25,19 +25,12 @@ def get( endpoint, checksum=""):
                 return data["data"]
 
     #fallback to local file cache
-    cachefile = default_cache_path + cacheName
+    cachefile = getCacheFile(endpoint)
     if use_file_cache and xbmcvfs.exists(cachefile):
-        try:
-            f = xbmcvfs.File(cachefile.encode("utf-8"), 'r')
-            text =  f.read()
-            f.close()
-            text = zlib.decompress(text).decode("utf-8")
-            data = eval(text)
-            if data["expires"] > n:
-                if not checksum or checksum == data["checksum"]:
-                    return data["data"]
-        except KeyError: 
-            pass #ignore any corrupted files
+        data = read_cachefile(cachefile)
+        if data and data["expires"] > n:
+            if not checksum or checksum == data["checksum"]:
+                return data["data"]
             
     return None
     
@@ -60,7 +53,7 @@ def set( endpoint, data, checksum="", expiration=datetime.timedelta(days=30)):
         if not xbmcvfs.exists(default_cache_path):
             xbmcvfs.mkdirs(default_cache_path)
             
-        cachefile = cachefile = default_cache_path + cacheName
+        cachefile = getCacheFile(endpoint)
         f = xbmcvfs.File(cachefile.encode("utf-8"), 'w')
         cachedata = zlib.compress(cachedata_str)
         text =  f.write(cachedata)
@@ -72,7 +65,10 @@ def getCacheName( endpoint ):
     value = unicode(re.sub('[^\w\s-]', '', value).strip().lower())
     value = unicode(re.sub('[-\s]+', '-', value))
     return value
-    
+
+def getCacheFile( endpoint ):
+    return default_cache_path + getCacheName(endpoint)
+      
 def auto_cleanup():
     #auto cleanup to remove any lingering cache objects
     #runs every 2 hours
@@ -108,3 +104,13 @@ def auto_cleanup():
                         #delete any corrupted files
                         xbmcvfs.delete(cachefile)
             
+def read_cachefile(cachefile):
+    try:
+        f = xbmcvfs.File(cachefile.encode("utf-8"), 'r')
+        text =  f.read()
+        f.close()
+        text = zlib.decompress(text).decode("utf-8")
+        data = eval(text)
+        return data
+    except KeyError: 
+        return {}

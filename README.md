@@ -19,7 +19,7 @@ Now, to use it in your Kodi addon/script, make sure to import it and you can acc
 import simplecache
 
 #get data from cache
-mycache = simplecache.get("MyGreatChunkOfData")
+mycache = simplecache.get("MyChunkOfData")
 if mycache:
     my_objects = mycache
 else:
@@ -27,12 +27,12 @@ else:
     my_objects = mymethod()
     
     #write results in cache
-    simplecache.set( "MyGreatChunkOfData", my_objects, expiration=datetime.timedelta(hours=12))
+    simplecache.set( "MyChunkOfData", my_objects, expiration=datetime.timedelta(hours=12))
 ```
 
-The above example will check the cache for the key "MyGreatChunkOfData". If there is any data (and the cache is not expired) it will be returned as the original object.
+The above example will check the cache for the key "MyChunkOfData". If there is any data (and the cache is not expired) it will be returned as the original object.
 
-If the cache is empty, you perform the usual stuff to get the data ans save that to the cache
+If the cache is empty, you perform the usual stuff to get the data and save that to the cache
 
 ---------------------------------------------------------------------------
 
@@ -42,12 +42,12 @@ If the cache is empty, you perform the usual stuff to get the data ans save that
 ```
     Returns the data from the cache for the specified endpoint. Will return None if there is no cache.
     
+    parameters:
     endpoint --> Your unique reference/key for the cache object. TIP: To prevent clashes with other addons, prefix with your addon ID.
-    
     checksum --> Optional argument to check for a checksum in the file (Will only work if you store the checksum with the set method). Can be any python object which can be serialized with eval.
     
     
-    Example: simplecache.get("MyAddon.MyGreatChunkOfData", checksum=len(myvideos))
+    Example: simplecache.get("MyChunkOfData", checksum=len(myvideos))
     
     This example will return the data in the cache but only if the length of the list myvideos is the same as whatever is stored as checksum in the cache.
     
@@ -56,6 +56,8 @@ If the cache is empty, you perform the usual stuff to get the data ans save that
 ###set( endpoint, data, checksum="", expiration=timedelta(days=30))
 ```
     Stores the data in the cache for the specified endpoint.
+    
+    parameters:
     endpoint --> Your unique reference/key for the cache object. TIP: To prevent clashes with other addons, prefix with your addon ID.
     data --> Your objectdata. Can be any python object which can be serialized with eval.
     checksum --> Optional argument to store as checksum in the file. Can be any python object which can be serialized with eval.
