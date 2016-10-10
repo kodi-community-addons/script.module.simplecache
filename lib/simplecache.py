@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import xbmc, xbmcvfs, xbmcgui
+import xbmcvfs, xbmcgui
 import re, base64, zlib
 import datetime
 import unicodedata
@@ -74,7 +74,7 @@ def set_internal( endpoint, data, checksum="", expiration=datetime.timedelta(day
         cachefile = getCacheFile(endpoint)
         f = xbmcvfs.File(cachefile.encode("utf-8"), 'w')
         cachedata = zlib.compress(cachedata_str)
-        text =  f.write(cachedata)
+        f.write(cachedata)
         f.close()
 
 def getCacheName( endpoint ):
@@ -141,7 +141,7 @@ def read_cachefile(cachefile):
         text = zlib.decompress(text).decode("utf-8")
         data = eval(text)
         return data
-    except:
+    except Exception:
         return {}
 
 def try_encode(text, encoding="utf-8"):
