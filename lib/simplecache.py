@@ -17,20 +17,17 @@ def use_cache(cache_days=14):
         def decorated( *args, **kwargs):
             self = args[0]
             cache_str = "%s.%s" %(self.__class__.__name__, func.__name__)
-            for item in args:
-                if not item == self:
-                    cache_str += ".%s" %item
+            for item in args[1:]:
+                cache_str += ".%s" %item
             for item in kwargs.itervalues():
                 cache_str += ".%s" %item
             cachedata = self.cache.get(cache_str)
-            if kwargs.get("ignore_cache",False):
+            if kwargs.get("ignore_cache",False) or kwargs.get("manual_select",False):
                 cachedata = None
-            if cachedata:
+            if cachedata != None:
                 return cachedata
             else:
                 result = func( *args, **kwargs)
-                if not result:
-                    result = {"no result":"no results"}
                 self.cache.set(cache_str,result,expiration=datetime.timedelta(days=cache_days))
                 return result
         return decorated
@@ -47,9 +44,7 @@ class SimpleCache(object):
         #run automated cleanup task on startup
         self.win = xbmcgui.Window(10000)
         thread.start_new_thread(self.auto_cleanup, ())
-        log_msg("Initialized")
         
-    
     def get( self, endpoint, checksum=""):
         '''
             get object from cache and return the results
@@ -147,7 +142,7 @@ class SimpleCache(object):
             lastexecuted = eval(lastexecuted)
             #cleanup old cache entries, based on expiration key
             if (lastexecuted + DEF_MEM_EXPIRATION) < n:
-                log_msg("Run auto cleanup")
+                log_msg("Run auto cleanup...")
                 self.win.setProperty("simplecache.clean.lastexecuted",repr(n))
                 
                 #cleanup memory cache objects
