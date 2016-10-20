@@ -93,35 +93,36 @@ class SimpleCache(object):
             and doesn't block the main code execution (as file writes can be file consuming)
         '''
         cache_name = self.get_cache_name(endpoint)
-        n = datetime.datetime.now()
-        expires = n + expiration
-        cachedata = { "date": n, "expires":expires, "endpoint":endpoint, "data":data, "checksum":checksum }
-        cachedata_str = repr(cachedata).encode("utf-8")
-        
+        cur_time = datetime.datetime.now()
+        cachedata = { "date": cur_time, "endpoint":endpoint, "checksum":checksum }
+
         #save in memory cache
+        if expiration < DEF_MEM_EXPIRATION:
+            mem_expires = cur_time + expiration
+        else: 
+            mem_expires = cur_time + DEF_MEM_EXPIRATION
+        cachedata["expires"] = mem_expires
         self.mem_cache[endpoint] = cachedata
 
         #self.win property cache
         #writes the data both in it's own self.win property and to a global list
         #the global list is used to determine when objects should be deleted from the memory cache
+        cachedata_str = repr(cachedata).encode("utf-8")
         if self.enable_win_cache:
             all_win_cache_objects = self.win.getProperty("script.module.simplecache.cacheobjects").decode("utf-8")
             if all_win_cache_objects: 
                 all_win_cache_objects = eval(all_win_cache_objects)
             else: 
                 all_win_cache_objects = []
-            if expiration < DEF_MEM_EXPIRATION:
-                mem_expires = n + expires
-            else: 
-                mem_expires = n + DEF_MEM_EXPIRATION
             all_win_cache_objects.append( (cache_name, mem_expires) )
             self.win.setProperty("script.module.simplecache.cacheobjects",repr(all_win_cache_objects).encode("utf-8"))
-            #set data in cache
             self.win.setProperty(cache_name.encode("utf-8"), cachedata_str)
 
         #file cache only if cache persistance needs to be larger than memory cache expiration
         #dumps the data into a zlib compressed file on disk
         if self.enable_file_cache and expiration > DEF_MEM_EXPIRATION:
+            cachedata["expires"] = cur_time + expiration
+            cachedata_str = repr(cachedata).encode("utf-8")
             if not xbmcvfs.exists(DEFAULTCACHEPATH):
                 xbmcvfs.mkdirs(DEFAULTCACHEPATH)
 
@@ -133,22 +134,22 @@ class SimpleCache(object):
 
     def auto_cleanup(self):
         '''auto cleanup to remove any lingering cache objects'''
-        n = datetime.datetime.now()
+        cur_time = datetime.datetime.now()
         lastexecuted = self.win.getProperty("simplecache.clean.lastexecuted")
         if not lastexecuted:
             #skip cleanup on first run
-            self.win.setProperty("simplecache.clean.lastexecuted",repr(n))
+            self.win.setProperty("simplecache.clean.lastexecuted",repr(cur_time))
         else:
             lastexecuted = eval(lastexecuted)
             #cleanup old cache entries, based on expiration key
-            if (lastexecuted + DEF_MEM_EXPIRATION) < n:
+            if (lastexecuted + DEF_MEM_EXPIRATION) < cur_time:
                 log_msg("Run auto cleanup...")
-                self.win.setProperty("simplecache.clean.lastexecuted",repr(n))
+                self.win.setProperty("simplecache.clean.lastexecuted",repr(cur_time))
                 
                 #cleanup memory cache objects
                 keys_to_delete = []
                 for key, value in self.mem_cache.iteritems():
-                    if value["expires"] < n:
+                    if value["expires"] < cur_time:
                         keys_to_delete.append(key)
                 temp_dict = dict(self.mem_cache)
                 for key in keys_to_delete:
@@ -160,7 +161,7 @@ class SimpleCache(object):
                 if all_win_cache_objects:
                     cacheObjects = []
                     for item in eval(all_win_cache_objects):
-                        if item[1] <= n:
+                        if item[1] <= cur_time:
                             self.win.clearProperty(item[0].encode("utf-8"))
                         else:
                             cacheObjects.append(item)
@@ -170,7 +171,6 @@ class SimpleCache(object):
                 #cleanup file cache objects
                 if xbmcvfs.exists(DEFAULTCACHEPATH):
                     dirs, files = xbmcvfs.listdir(DEFAULTCACHEPATH)
-                    n = datetime.datetime.now()
                     for file in files:
 
                         #check filebased cache for expired items
@@ -181,7 +181,7 @@ class SimpleCache(object):
                             f.close()
                             text = zlib.decompress(text).decode("utf-8")
                             data = eval(text)
-                            if data["expires"] < n:
+                            if data["expires"] < cur_time:
                                 xbmcvfs.delete(cachefile)
                         except Exception:
                             #delete any corrupted files
