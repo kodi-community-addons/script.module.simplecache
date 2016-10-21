@@ -7,43 +7,26 @@ import thread
 import inspect
 from functools import wraps
 
-
 DEFAULTCACHEPATH = "special://profile/addon_data/script.module.simplecache/"
 DEF_MEM_EXPIRATION = datetime.timedelta(hours=2)
-
-def use_cache(cache_days=14):
-    '''wrapper around our simple cache to use as decorator'''
-    def decorator(func):
-        def decorated( *args, **kwargs):
-            self = args[0]
-            cache_str = "%s.%s" %(self.__class__.__name__, func.__name__)
-            for item in args[1:]:
-                cache_str += ".%s" %item
-            for item in kwargs.itervalues():
-                cache_str += ".%s" %item
-            cachedata = self.cache.get(cache_str)
-            if kwargs.get("ignore_cache",False) or kwargs.get("manual_select",False):
-                cachedata = None
-            if cachedata != None:
-                return cachedata
-            else:
-                result = func( *args, **kwargs)
-                self.cache.set(cache_str,result,expiration=datetime.timedelta(days=cache_days))
-                return result
-        return decorated
-    return decorator
-  
 
 class SimpleCache(object):
     '''simple stateless caching system for Kodi'''
     mem_cache = {}
     enable_win_cache = True
     enable_file_cache = True
+    win = None
     
     def __init__(self, *args):
-        #run automated cleanup task on startup
+        '''Initialize our caching class'''
+        self.log_msg("Initialized")
         self.win = xbmcgui.Window(10000)
         thread.start_new_thread(self.auto_cleanup, ())
+        
+    def __del__(self):
+        '''Cleanup Kodi cpython classes to prevent errors in the log'''
+        self.log_msg("Exited")
+        del self.win
         
     def get( self, endpoint, checksum=""):
         '''
@@ -94,7 +77,7 @@ class SimpleCache(object):
         '''
         cache_name = self.get_cache_name(endpoint)
         cur_time = datetime.datetime.now()
-        cachedata = { "date": cur_time, "endpoint":endpoint, "checksum":checksum }
+        cachedata = { "date": cur_time, "endpoint":endpoint, "checksum":checksum, "data": data }
 
         #save in memory cache
         if expiration < DEF_MEM_EXPIRATION:
@@ -131,6 +114,7 @@ class SimpleCache(object):
             cachedata = zlib.compress(cachedata_str)
             f.write(cachedata)
             f.close()
+            del f
 
     def auto_cleanup(self):
         '''auto cleanup to remove any lingering cache objects'''
@@ -143,7 +127,7 @@ class SimpleCache(object):
             lastexecuted = eval(lastexecuted)
             #cleanup old cache entries, based on expiration key
             if (lastexecuted + DEF_MEM_EXPIRATION) < cur_time:
-                log_msg("Run auto cleanup...")
+                self.log_msg("Run auto cleanup...")
                 self.win.setProperty("simplecache.clean.lastexecuted",repr(cur_time))
                 
                 #cleanup memory cache objects
@@ -172,13 +156,13 @@ class SimpleCache(object):
                 if xbmcvfs.exists(DEFAULTCACHEPATH):
                     dirs, files = xbmcvfs.listdir(DEFAULTCACHEPATH)
                     for file in files:
-
                         #check filebased cache for expired items
                         cachefile = DEFAULTCACHEPATH + file
+                        f = xbmcvfs.File(cachefile, 'r')
+                        text =  f.read()
+                        f.close()
+                        del f
                         try:
-                            f = xbmcvfs.File(cachefile, 'r')
-                            text =  f.read()
-                            f.close()
                             text = zlib.decompress(text).decode("utf-8")
                             data = eval(text)
                             if data["expires"] < cur_time:
@@ -193,6 +177,7 @@ class SimpleCache(object):
             f = xbmcvfs.File(cachefile.encode("utf-8"), 'r')
             text =  f.read()
             f.close()
+            del f
             text = zlib.decompress(text).decode("utf-8")
             data = eval(text)
             return data
@@ -201,7 +186,7 @@ class SimpleCache(object):
     
     @staticmethod
     def get_cache_name( endpoint ):
-        value = base64.encodestring(try_encode(endpoint)).decode("utf-8")
+        value = base64.encodestring(self.try_encode(endpoint)).decode("utf-8")
         value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore')
         value = unicode(re.sub('[^\w\s-]', '', value).strip().lower())
         value = unicode(re.sub('[-\s]+', '-', value))
@@ -211,20 +196,46 @@ class SimpleCache(object):
         return DEFAULTCACHEPATH + self.get_cache_name(endpoint)
 
         
-###### Utilities ##############################
-def try_encode(text, encoding="utf-8"):
-    try:
-        return text.encode(encoding,"ignore")
-    except Exception:
-        return text
+    ###### Utilities ##############################
+    @staticmethod
+    def try_encode(text, encoding="utf-8"):
+        try:
+            return text.encode(encoding,"ignore")
+        except Exception:
+            return text
+    
+    @staticmethod        
+    def log_msg(msg, loglevel = xbmc.LOGNOTICE):
+        if isinstance(msg, unicode):
+            msg = msg.encode('utf-8')
+        xbmc.log("Skin Helper Simplecache --> %s" %msg, level=loglevel)
 
-def try_decode(text, encoding="utf-8"):
-    try:
-        return text.decode(encoding,"ignore")
-    except Exception:
-        return text
-        
-def log_msg(msg, loglevel = xbmc.LOGNOTICE):
-    if isinstance(msg, unicode):
-        msg = msg.encode('utf-8')
-    xbmc.log("Skin Helper Simplecache --> %s" %msg, level=loglevel)
+
+#decorator to use cache on classmethods        
+def use_cache(cache_days=14):
+    '''
+        wrapper around our simple cache to use as decorator
+        Usage: define an instance of SimpleCache with name "cache" (self.cache) in your class
+        Any method that needs caching just add @use_cache as decorator
+    '''
+    def decorator(func):
+        def decorated( *args, **kwargs):
+            method_class = args[0]
+            method_name = func.__name__
+            method_class_name = method_class.__class__.__name__
+            cache_str = "%s.%s" %(method_class_name, method_name)
+            for item in args[1:]:
+                cache_str += ".%s" %item
+            for item in kwargs.itervalues():
+                cache_str += ".%s" %item
+            cachedata = method_class.cache.get(cache_str)
+            if kwargs.get("ignore_cache",False) or kwargs.get("manual_select",False):
+                cachedata = None
+            if cachedata != None:
+                return cachedata
+            else:
+                result = func( *args, **kwargs)
+                method_class.cache.set(cache_str,result,expiration=datetime.timedelta(days=cache_days))
+                return result
+        return decorated
+    return decorator
