@@ -4,8 +4,6 @@ import re, base64, zlib
 import datetime
 import unicodedata
 import threading, thread
-import inspect
-from functools import wraps
 import atexit
 
 DEFAULTCACHEPATH = "special://profile/addon_data/script.module.simplecache/"
@@ -13,7 +11,7 @@ DEFAULTCACHEPATH = "special://profile/addon_data/script.module.simplecache/"
 class SimpleCache(object):
     '''simple stateless caching system for Kodi'''
     mem_cache = {}
-    stop = False
+    exit = False
     auto_clean_interval = 60 #cleanup every 60 minutes
     enable_win_cache = True
     enable_file_cache = True
@@ -34,11 +32,11 @@ class SimpleCache(object):
     @atexit.register
     def stop(self):
         '''tell background thread(s) to stop immediately'''
-        self.stop = True
+        self.exit = True
 
     def __del__(self):
         '''Cleanup Kodi cpython classes to prevent errors in the log'''
-        self.stop = True
+        self.exit = True
         del self.win
         del self.monitor
         self.log_msg("Exited")
@@ -49,7 +47,7 @@ class SimpleCache(object):
             endpoint: the (unique) name of the cache object as reference
             checkum: optional argument to check if the cacheobjects matches the checkum
         '''
-        n = datetime.datetime.now()
+        cur_time = datetime.datetime.now()
         #1: try memory cache first - only for objects that can be accessed by the same instance calling the addon!
         if endpoint in self.mem_cache:
             cachedata = self.mem_cache[endpoint]
@@ -61,7 +59,7 @@ class SimpleCache(object):
         cache = self.win.getProperty(cache_name.encode("utf-8")).decode("utf-8")
         if self.enable_win_cache and cache:
             cachedata = eval(cache)
-            if cachedata["expires"] > n:
+            if cachedata["expires"] > cur_time:
                 if not checksum or checksum == cachedata["checksum"]:
                     return cachedata["data"]
 
@@ -69,7 +67,7 @@ class SimpleCache(object):
         cachefile = self.get_cache_file(endpoint)
         if self.enable_file_cache and xbmcvfs.exists(cachefile):
             cachedata = self.read_cachefile(cachefile)
-            if cachedata and cachedata["expires"] > n:
+            if cachedata and cachedata["expires"] > cur_time:
                 if not checksum or checksum == cachedata["checksum"]:
                     return cachedata["data"]
 
@@ -117,7 +115,8 @@ class SimpleCache(object):
                 else:
                     all_win_cache_objects = []
                 all_win_cache_objects.append( (cache_name, mem_expires) )
-                self.win.setProperty("script.module.simplecache.cacheobjects",repr(all_win_cache_objects).encode("utf-8"))
+                self.win.setProperty("script.module.simplecache.cacheobjects",
+                    repr(all_win_cache_objects).encode("utf-8"))
                 self.win.setProperty(cache_name.encode("utf-8"), cachedata_str)
 
         #file cache only if cache persistance needs to be larger than memory cache expiration
@@ -129,25 +128,25 @@ class SimpleCache(object):
                 xbmcvfs.mkdirs(DEFAULTCACHEPATH)
 
             cachefile = self.get_cache_file(endpoint)
-            f = xbmcvfs.File(cachefile.encode("utf-8"), 'w')
+            _file = xbmcvfs.File(cachefile.encode("utf-8"), 'w')
             cachedata = zlib.compress(cachedata_str)
-            f.write(cachedata)
-            f.close()
-            del f
+            _file.write(cachedata)
+            _file.close()
+            del _file
 
     def auto_cleanup(self):
         '''auto cleanup to remove any expired cache objects - usefull for services'''
         self.log_msg("Auto cleanup backgroundworker started...")
         cur_tick = 0
         interval = (self.auto_clean_interval * 60) / 5
-        while not self.stop:
+        while not self.exit:
             if cur_tick == interval:
                 cur_tick = 0
                 self.do_cleanup()
             else:
                 cur_tick += 1
             if self.monitor.waitForAbort(5):
-                self.stop = True
+                self.exit = True
         self.log_msg("Auto cleanup backgroundworker stopped...")
 
     def manual_cleanup(self):
@@ -191,7 +190,7 @@ class SimpleCache(object):
 
         #cleanup file cache objects
         if xbmcvfs.exists(DEFAULTCACHEPATH):
-            dirs, files = xbmcvfs.listdir(DEFAULTCACHEPATH)
+            files = xbmcvfs.listdir(DEFAULTCACHEPATH)[1]
             for file in files:
                 #check filebased cache for expired items
                 if self.monitor.abortRequested():
@@ -213,6 +212,7 @@ class SimpleCache(object):
 
     @staticmethod
     def read_cachefile(cachefile):
+        '''try to read a file on disk and return the cache data'''
         try:
             f = xbmcvfs.File(cachefile.encode("utf-8"), 'r')
             text =  f.read()
@@ -225,6 +225,7 @@ class SimpleCache(object):
             return {}
 
     def get_cache_name( self, endpoint ):
+        '''helper to get our base64 representation of the cache identifier'''
         value = base64.encodestring(self.try_encode(endpoint)).decode("utf-8")
         value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore')
         value = unicode(re.sub('[^\w\s-]', '', value).strip().lower())
@@ -232,11 +233,13 @@ class SimpleCache(object):
         return value
 
     def get_cache_file( self, endpoint ):
+        '''helper to return the filename of the cachefile'''
         return DEFAULTCACHEPATH + self.get_cache_name(endpoint)
 
     ###### Utilities ##############################
     @staticmethod
     def try_encode(text, encoding="utf-8"):
+        '''helper to encode a string'''
         try:
             return text.encode(encoding,"ignore")
         except Exception:
@@ -244,6 +247,7 @@ class SimpleCache(object):
 
     @staticmethod
     def log_msg(msg, loglevel = xbmc.LOGDEBUG):
+        '''helper to send a message to the kodi log'''
         if isinstance(msg, unicode):
             msg = msg.encode('utf-8')
         xbmc.log("Skin Helper Simplecache --> %s" %msg, level=loglevel)
