@@ -12,10 +12,11 @@ class SimpleCache(object):
     '''simple stateless caching system for Kodi'''
     mem_cache = {}
     exit = False
-    auto_clean_interval = 60 #cleanup every 60 minutes
+    auto_clean_interval = 3600 #cleanup every 60 minutes (3600 seconds)
     enable_win_cache = True
     enable_file_cache = True
     win = None
+    busy_tasks = []
 
     def __init__(self, autocleanup=False):
         '''Initialize our caching class'''
@@ -29,14 +30,13 @@ class SimpleCache(object):
             self.manual_cleanup()
         self.log_msg("Initialized")
 
-    @atexit.register
-    def stop(self):
-        '''tell background thread(s) to stop immediately'''
+    def close(self):
+        '''tell background thread(s) to stop immediately and cleanup objects'''
         self.exit = True
-
-    def __del__(self):
-        '''Cleanup Kodi cpython classes to prevent errors in the log'''
-        self.exit = True
+        #wait for all tasks to complete
+        xbmc.sleep(25)
+        while self.busy_tasks:
+            xbmc.sleep(25)
         del self.win
         del self.monitor
         self.log_msg("Exited")
@@ -91,6 +91,7 @@ class SimpleCache(object):
         '''
         cache_name = self.get_cache_name(endpoint)
         cur_time = datetime.datetime.now()
+        self.busy_tasks.append(cur_time)
         cachedata = { "date": cur_time, "endpoint":endpoint, "checksum":checksum, "data": data }
         memory_expiration = datetime.timedelta(minutes=self.auto_clean_interval)
 
@@ -104,7 +105,7 @@ class SimpleCache(object):
         if mem_cache:
             self.mem_cache[endpoint] = cachedata
         else:
-            #self.win property cache
+            #window property cache
             #writes the data both in it's own self.win property and to a global list
             #the global list is used to determine when objects should be deleted from the memory cache
             cachedata_str = repr(cachedata).encode("utf-8")
@@ -118,7 +119,7 @@ class SimpleCache(object):
                 self.win.setProperty("script.module.simplecache.cacheobjects",
                     repr(all_win_cache_objects).encode("utf-8"))
                 self.win.setProperty(cache_name.encode("utf-8"), cachedata_str)
-
+            
         #file cache only if cache persistance needs to be larger than memory cache expiration
         #dumps the data into a zlib compressed file on disk
         if self.enable_file_cache and expiration > memory_expiration:
@@ -133,36 +134,41 @@ class SimpleCache(object):
             _file.write(cachedata)
             _file.close()
             del _file
+        #remove task from list
+        self.busy_tasks.remove(cur_time)
 
     def auto_cleanup(self):
         '''auto cleanup to remove any expired cache objects - usefull for services'''
         self.log_msg("Auto cleanup backgroundworker started...")
+        self.busy_tasks.append("auto_cleanup")
         cur_tick = 0
-        interval = (self.auto_clean_interval * 60) / 5
-        while not self.exit:
-            if cur_tick == interval:
+        while not (self.exit or self.monitor.abortRequested()):
+            if cur_tick == self.auto_clean_interval:
                 cur_tick = 0
                 self.do_cleanup()
             else:
-                cur_tick += 1
-            if self.monitor.waitForAbort(5):
-                self.exit = True
+                cur_tick += 5
+            self.monitor.waitForAbort(5)
+        self.busy_tasks.remove("auto_cleanup")
         self.log_msg("Auto cleanup backgroundworker stopped...")
 
     def manual_cleanup(self):
         '''manual cleanup to start only at initialization if autoclean worker is disabled - usefull for plugins'''
         cur_time = datetime.datetime.now()
         lastexecuted = self.win.getProperty("simplecache.clean.lastexecuted")
-        memory_expiration = datetime.timedelta(minutes=self.auto_clean_interval)
+        memory_expiration = datetime.timedelta(seconds=self.auto_clean_interval)
         if not lastexecuted or ((eval(lastexecuted) + memory_expiration) < cur_time):
             #cleanup needed...
             self.do_cleanup()
 
     def do_cleanup(self):
         '''perform cleanup task'''
+        if self.exit:
+            return
         cur_time = datetime.datetime.now()
+        self.busy_tasks.append(cur_time)
         self.win.setProperty("simplecache.clean.lastexecuted",repr(cur_time))
-        self.log_msg("Running auto cleanup...", xbmc.LOGNOTICE)
+        self.log_msg("Running cleanup...", xbmc.LOGNOTICE)
 
         #cleanup memory cache objects
         keys_to_delete = []
@@ -209,6 +215,8 @@ class SimpleCache(object):
                     #delete any corrupted files
                     xbmcvfs.delete(cachefile)
         self.log_msg("Auto cleanup done",xbmc.LOGNOTICE)
+        #remove task from list
+        self.busy_tasks.remove(cur_time)
 
     @staticmethod
     def read_cachefile(cachefile):
@@ -268,7 +276,7 @@ def use_cache(cache_days=14, mem_cache=False):
             # cache identifier is based on positional args only
             # named args are considered optional and ignored
             for item in args[1:]:
-                cache_str += ".%s" %item
+                cache_str += u".%s" %item
             cache_str = cache_str.lower()
             cachedata = method_class.cache.get(cache_str)
             if cachedata != None and not kwargs.get("ignore_cache",False):
