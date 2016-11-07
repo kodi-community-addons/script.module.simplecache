@@ -157,7 +157,9 @@ class SimpleCache(object):
         cur_time = datetime.datetime.now()
         lastexecuted = self.win.getProperty("simplecache.clean.lastexecuted")
         memory_expiration = datetime.timedelta(seconds=self.auto_clean_interval)
-        if not lastexecuted or ((eval(lastexecuted) + memory_expiration) < cur_time):
+        if not lastexecuted:
+            self.win.setProperty("simplecache.clean.lastexecuted",repr(cur_time))
+        elif (eval(lastexecuted) + memory_expiration) < cur_time:
             #cleanup needed...
             self.do_cleanup()
 
@@ -279,7 +281,12 @@ def use_cache(cache_days=14, mem_cache=False):
                 cache_str += u".%s" %item
             cache_str = cache_str.lower()
             cachedata = method_class.cache.get(cache_str)
-            if cachedata != None and not kwargs.get("ignore_cache",False):
+            global_cache_ignore = False
+            try:
+                global_cache_ignore = method_class.ignore_cache
+            except Exception:
+                pass
+            if cachedata != None and not kwargs.get("ignore_cache",False) and not global_cache_ignore:
                 return cachedata
             else:
                 result = func( *args, **kwargs)
