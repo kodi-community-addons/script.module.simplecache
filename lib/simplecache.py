@@ -194,7 +194,7 @@ class SimpleCache(object):
         for key in keys_to_delete:
             del temp_dict[key]
         self.mem_cache = temp_dict
-        
+
         if self.exit:
             return
 
@@ -211,10 +211,10 @@ class SimpleCache(object):
                     return
             # Store our list with cacheobjects again
             self.win.setProperty("script.module.simplecache.cacheobjects", repr(cache_objects).encode("utf-8"))
-        
+
         if self.exit:
             return
-        
+
         # cleanup file cache objects
         if xbmcvfs.exists(DEFAULTCACHEPATH):
             files = xbmcvfs.listdir(DEFAULTCACHEPATH)[1]
