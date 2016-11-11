@@ -1,4 +1,8 @@
+#!/usr/bin/python
 # -*- coding: utf-8 -*-
+
+'''provides a simple stateless caching system for Kodi addons and plugins'''
+
 import xbmcvfs
 import xbmcgui
 import xbmc
@@ -9,7 +13,6 @@ import datetime
 import unicodedata
 import threading
 import thread
-import atexit
 
 DEFAULTCACHEPATH = "special://profile/addon_data/script.module.simplecache/"
 
@@ -44,7 +47,7 @@ class SimpleCache(object):
         while self.busy_tasks:
             xbmc.sleep(25)
 
-    def __exit__(self):
+    def __exit__(self, exc_type, exc_value, traceback):
         '''fallback if close is not called'''
         self.close()
         del self.win
@@ -191,33 +194,39 @@ class SimpleCache(object):
         for key in keys_to_delete:
             del temp_dict[key]
         self.mem_cache = temp_dict
+        
+        if self.exit:
+            return
 
         # cleanup winprops cache objects
         all_win_cache_objects = self.win.getProperty("script.module.simplecache.cacheobjects").decode("utf-8")
         if all_win_cache_objects:
-            cacheObjects = []
+            cache_objects = []
             for item in eval(all_win_cache_objects):
                 if item[1] <= cur_time:
                     self.win.clearProperty(item[0].encode("utf-8"))
                 else:
-                    cacheObjects.append(item)
+                    cache_objects.append(item)
                 if self.monitor.abortRequested():
                     return
             # Store our list with cacheobjects again
-            self.win.setProperty("script.module.simplecache.cacheobjects", repr(cacheObjects).encode("utf-8"))
-
+            self.win.setProperty("script.module.simplecache.cacheobjects", repr(cache_objects).encode("utf-8"))
+        
+        if self.exit:
+            return
+        
         # cleanup file cache objects
         if xbmcvfs.exists(DEFAULTCACHEPATH):
             files = xbmcvfs.listdir(DEFAULTCACHEPATH)[1]
             for file in files:
                 # check filebased cache for expired items
-                if self.monitor.abortRequested():
+                if self.exit:
                     return
                 cachefile = DEFAULTCACHEPATH + file
-                f = xbmcvfs.File(cachefile, 'r')
-                text = f.read()
-                f.close()
-                del f
+                _file = xbmcvfs.File(cachefile, 'r')
+                text = _file.read()
+                _file.close()
+                del _file
                 try:
                     text = zlib.decompress(text).decode("utf-8")
                     data = eval(text)
@@ -234,10 +243,10 @@ class SimpleCache(object):
     def read_cachefile(cachefile):
         '''try to read a file on disk and return the cache data'''
         try:
-            f = xbmcvfs.File(cachefile.encode("utf-8"), 'r')
-            text = f.read()
-            f.close()
-            del f
+            _file = xbmcvfs.File(cachefile.encode("utf-8"), 'r')
+            text = _file.read()
+            _file.close()
+            del _file
             text = zlib.decompress(text).decode("utf-8")
             data = eval(text)
             return data
@@ -280,7 +289,9 @@ def use_cache(cache_days=14, mem_cache=False):
         NOTE: use unnamed arguments for calling the method and named arguments for optional settings
     '''
     def decorator(func):
+        '''our decorator'''
         def decorated(*args, **kwargs):
+            '''process the original method and apply caching of the results'''
             method_class = args[0]
             method_class_name = method_class.__class__.__name__
             cache_str = "%s.%s" % (method_class_name, func.__name__)
