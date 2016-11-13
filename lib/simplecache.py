@@ -43,16 +43,17 @@ class SimpleCache(object):
         '''tell background thread(s) to stop immediately and cleanup objects'''
         self.exit = True
         # wait for all tasks to complete
-        xbmc.sleep(25)
         while self.busy_tasks:
             xbmc.sleep(25)
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        '''fallback if close is not called'''
-        self.close()
+        self.win = None
+        self.monitor = None
         del self.win
         del self.monitor
-        self.log_msg("Exited")
+        
+    def __del__(self):
+        '''make sure close is called'''
+        if not self.exit:
+            self.close()
 
     def get(self, endpoint, checksum=""):
         '''
