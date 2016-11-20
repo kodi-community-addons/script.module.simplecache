@@ -116,9 +116,9 @@ class SimpleCache(object):
         cachedata["expires"] = mem_expires
 
         # save in memory cache - only if allowed
-        if mem_cache:
+        if mem_cache and not self.exit:
             self.mem_cache[endpoint] = cachedata
-        else:
+        elif not self.exit:
             # window property cache
             # writes the data both in it's own self.win property and to a global list
             # the global list is used to determine when objects should be deleted from the memory cache
@@ -136,7 +136,7 @@ class SimpleCache(object):
 
         # file cache only if cache persistance needs to be larger than memory cache expiration
         # dumps the data into a zlib compressed file on disk
-        if self.enable_file_cache and expiration > memory_expiration:
+        if self.enable_file_cache and expiration > memory_expiration and not not self.exit:
             cachedata["expires"] = cur_time + expiration
             cachedata_str = repr(cachedata).encode("utf-8")
             if not xbmcvfs.exists(DEFAULTCACHEPATH):
