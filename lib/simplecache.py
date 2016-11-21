@@ -49,6 +49,7 @@ class SimpleCache(object):
         self.monitor = None
         del self.win
         del self.monitor
+        self.log_msg("Closed")
         
     def __del__(self):
         '''make sure close is called'''
@@ -83,8 +84,8 @@ class SimpleCache(object):
             cachedata = self.read_cachefile(cachefile)
             if cachedata and cachedata["expires"] > cur_time:
                 if not checksum or checksum == cachedata["checksum"]:
+                    self.mem_cache[endpoint] = cachedata
                     return cachedata["data"]
-
         return None
 
     def set(self, endpoint, data, checksum="", expiration=datetime.timedelta(days=30), mem_cache=False):
@@ -196,33 +197,27 @@ class SimpleCache(object):
             del temp_dict[key]
         self.mem_cache = temp_dict
 
-        if self.exit:
-            return
-
         # cleanup winprops cache objects
         all_win_cache_objects = self.win.getProperty("script.module.simplecache.cacheobjects").decode("utf-8")
-        if all_win_cache_objects:
+        if all_win_cache_objects and not self.exit:
             cache_objects = []
             for item in eval(all_win_cache_objects):
                 if item[1] <= cur_time:
                     self.win.clearProperty(item[0].encode("utf-8"))
                 else:
                     cache_objects.append(item)
-                if self.monitor.abortRequested():
-                    return
+                if self.exit:
+                    break
             # Store our list with cacheobjects again
             self.win.setProperty("script.module.simplecache.cacheobjects", repr(cache_objects).encode("utf-8"))
 
-        if self.exit:
-            return
-
         # cleanup file cache objects
-        if xbmcvfs.exists(DEFAULTCACHEPATH):
+        if xbmcvfs.exists(DEFAULTCACHEPATH) and not self.exit:
             files = xbmcvfs.listdir(DEFAULTCACHEPATH)[1]
             for file in files:
                 # check filebased cache for expired items
                 if self.exit:
-                    return
+                    break
                 cachefile = DEFAULTCACHEPATH + file
                 _file = xbmcvfs.File(cachefile, 'r')
                 text = _file.read()
@@ -233,8 +228,9 @@ class SimpleCache(object):
                     data = eval(text)
                     if data["expires"] < cur_time:
                         xbmcvfs.delete(cachefile)
-                except Exception:
+                except Exception as exc:
                     # delete any corrupted files
+                    self.log_msg("Error in cleanup: %s" %repr(log_msg), xbmc.LOGWARNING)
                     xbmcvfs.delete(cachefile)
         self.log_msg("Auto cleanup done", xbmc.LOGNOTICE)
         # remove task from list
