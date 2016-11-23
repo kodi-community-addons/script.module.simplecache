@@ -19,24 +19,29 @@ DEFAULTCACHEPATH = "special://profile/addon_data/script.module.simplecache/"
 
 class SimpleCache(object):
     '''simple stateless caching system for Kodi'''
-    mem_cache = {}
     exit = False
-    auto_clean_interval = 4  # cleanup every 4 hours
+    auto_clean_interval = datetime.timedelta(hours=4)
     enable_win_cache = True
     enable_file_cache = True
     win = None
     busy_tasks = []
 
-    def __init__(self, allow_mem_cache=False):
+    def __init__(self):
         '''Initialize our caching class'''
         self.win = xbmcgui.Window(10000)
         self.monitor = xbmc.Monitor()
-        self.enable_mem_cache = allow_mem_cache
+        all_win_cache_objects = self.win.getProperty("script.module.simplecache.cacheobjects").decode("utf-8")
+        if all_win_cache_objects:
+            self.all_win_cache_objects = eval(all_win_cache_objects)
+        else:
+            self.all_win_cache_objects = []
         self.check_cleanup()
         self.log_msg("Initialized")
 
     def close(self):
-        '''tell background thread(s) to stop immediately and cleanup objects'''
+        '''tell any tasks to stop immediately (as we can be called multithreaded) and cleanup objects'''
+        self.win.setProperty("script.module.simplecache.cacheobjects",
+            repr(self.all_win_cache_objects).encode("utf-8"))
         self.exit = True
         # wait for all tasks to complete
         while self.busy_tasks:
@@ -59,14 +64,9 @@ class SimpleCache(object):
             checkum: optional argument to check if the cacheobjects matches the checkum
         '''
         cur_time = datetime.datetime.now()
-        # 1: try memory cache first - only for objects that can be accessed by the same instance calling the addon!
-        if self.enable_mem_cache and endpoint in self.mem_cache:
-            cachedata = self.mem_cache[endpoint]
-            if not checksum or checksum == cachedata["checksum"]:
-                return cachedata["data"]
-
-        # 2: try self.win property cache - usefull for plugins and scripts which dont run in the background
         cache_name = self.get_cache_name(endpoint)
+
+        # 1: try window property cache - usefull for plugins and scripts which dont run in the background
         cache = self.win.getProperty(cache_name.encode("utf-8")).decode("utf-8")
         if self.enable_win_cache and cache:
             cachedata = eval(cache)
@@ -74,63 +74,40 @@ class SimpleCache(object):
                 if not checksum or checksum == cachedata["checksum"]:
                     return cachedata["data"]
 
-        # 3: fallback to local file cache
+        # 2: fallback to local file cache
         cachefile = self.get_cache_file(endpoint)
         if self.enable_file_cache and xbmcvfs.exists(cachefile):
             cachedata = self.read_cachefile(cachefile)
             if cachedata and cachedata["expires"] > cur_time:
                 if not checksum or checksum == cachedata["checksum"]:
-                    self.mem_cache[endpoint] = cachedata
+                    self.set_win_cache(cache_name, repr(cachedata))
                     return cachedata["data"]
         return None
 
-    def set(self, endpoint, data, checksum="", expiration=datetime.timedelta(days=30), mem_cache=False):
+    def set(self, endpoint, data, checksum="", expiration=datetime.timedelta(days=30)):
         '''
-            set an object in the cache
-            endpoint: the (unique) name of the cache object as reference
-            data: the data to store in the cache(can be any serializable python object)
-            checkum: optional checksum to store in the cache
-            expiration: set expiration of the object in the cache as timedelta
-        '''
-        thread.start_new_thread(self.set_internal, (endpoint, data, checksum, expiration, mem_cache))
-
-    def set_internal(self, endpoint, data, checksum, expiration, mem_cache):
-        '''
-            internal method is called multithreaded so saving happens in the background
-            and doesn't block the main code execution (as file writes can be file consuming)
+            set data in cache
         '''
         cache_name = self.get_cache_name(endpoint)
         cur_time = datetime.datetime.now()
         self.busy_tasks.append(cur_time)
-        cachedata = {"date": cur_time, "endpoint": endpoint, "checksum": checksum, "data": data}
-        memory_expiration = datetime.timedelta(hours=self.auto_clean_interval)
+        cachedata = {
+            "date": cur_time, 
+            "endpoint": endpoint, 
+            "checksum": checksum,
+            "expires": cur_time + expiration,
+            "data": data}
+        
+        cachedata_str = repr(cachedata).encode("utf-8")
 
-        cachedata["expires"] = cur_time + expiration
-
-        # save in memory cache - only if allowed
-        if self.enable_mem_cache and not self.exit:
-            self.mem_cache[endpoint] = cachedata
-        else:
-            # window property cache as alternative for memory cache - usefull for (stateless) plugins
-            # writes the data both in it's own self.win property and to a global list
-            # the global list is used to determine which objects exist in memory cache
-            cachedata_str = repr(cachedata).encode("utf-8")
-            if self.enable_win_cache and not self.exit:
-                all_win_cache_objects = self.win.getProperty("script.module.simplecache.cacheobjects").decode("utf-8")
-                if all_win_cache_objects:
-                    all_win_cache_objects = eval(all_win_cache_objects)
-                else:
-                    all_win_cache_objects = []
-                all_win_cache_objects.append((cache_name))
-                self.win.setProperty("script.module.simplecache.cacheobjects",
-                                     repr(all_win_cache_objects).encode("utf-8"))
-                self.win.setProperty(cache_name.encode("utf-8"), cachedata_str)
+        # memory cache: write to window property
+        if self.enable_win_cache and not self.exit:
+            self.set_win_cache(cache_name, cachedata_str)
 
         # file cache only if cache persistance needs to be larger than memory cache expiration
         # dumps the data into a zlib compressed file on disk
-        if self.enable_file_cache and expiration > memory_expiration and not not self.exit:
+        if self.enable_file_cache and expiration > self.auto_clean_interval and not self.exit:
             cachedata["expires"] = cur_time + expiration
-            cachedata_str = repr(cachedata).encode("utf-8")
             if not xbmcvfs.exists(DEFAULTCACHEPATH):
                 xbmcvfs.mkdirs(DEFAULTCACHEPATH)
             cachefile = self.get_cache_file(endpoint)
@@ -142,17 +119,23 @@ class SimpleCache(object):
             
         # remove this task from list
         self.busy_tasks.remove(cur_time)
-        # always check if a cleanup is needed
-        self.check_cleanup()
 
+    def set_win_cache(self, cache_name, cachedata_str):
+        '''
+            window property cache as alternative for memory cache - usefull for (stateless) plugins
+            writes the data both in it's own self.win property and to a global list
+            the global list is used to determine which objects exist in memory cache
+        '''
+        self.all_win_cache_objects.append((cache_name))
+        self.win.setProperty(cache_name.encode("utf-8"), cachedata_str)
+    
     def check_cleanup(self):
         '''check if cleanup is needed'''
         cur_time = datetime.datetime.now()
         lastexecuted = self.win.getProperty("simplecache.clean.lastexecuted")
-        cleanup_interval = datetime.timedelta(hours=self.auto_clean_interval)
         if not lastexecuted:
             self.win.setProperty("simplecache.clean.lastexecuted", repr(cur_time))
-        elif (eval(lastexecuted) + cleanup_interval) < cur_time:
+        elif (eval(lastexecuted) + self.auto_clean_interval) < cur_time:
             # cleanup needed...
             self.do_cleanup()
 
@@ -165,19 +148,14 @@ class SimpleCache(object):
         self.win.setProperty("simplecache.clean.lastexecuted", repr(cur_time))
         self.log_msg("Running cleanup...", xbmc.LOGNOTICE)
 
-        # cleanup memory cache objects
-        self.mem_cache = {}
-
         # cleanup winprops cache objects
-        all_win_cache_objects = self.win.getProperty("script.module.simplecache.cacheobjects").decode("utf-8")
-        if all_win_cache_objects and not self.exit:
-            cache_objects = []
-            for item in eval(all_win_cache_objects):
-                self.win.clearProperty(item.encode("utf-8"))
-                if self.exit:
-                    break
-            # also clear our global list
-            self.win.clearProperty("script.module.simplecache.cacheobjects")
+        for item in self.all_win_cache_objects:
+            self.win.clearProperty(item.encode("utf-8"))
+            if self.exit:
+                break
+        # also clear our global list
+        self.all_win_cache_objects = []
+        self.win.clearProperty("script.module.simplecache.cacheobjects")
 
         # cleanup file cache objects
         if xbmcvfs.exists(DEFAULTCACHEPATH) and not self.exit:
