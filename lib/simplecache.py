@@ -21,22 +21,18 @@ class SimpleCache(object):
     '''simple stateless caching system for Kodi'''
     mem_cache = {}
     exit = False
-    auto_clean_interval = 3600  # cleanup every 60 minutes (3600 seconds)
+    auto_clean_interval = 4  # cleanup every 4 hours
     enable_win_cache = True
     enable_file_cache = True
     win = None
     busy_tasks = []
 
-    def __init__(self, autocleanup=False):
+    def __init__(self, allow_mem_cache=False):
         '''Initialize our caching class'''
         self.win = xbmcgui.Window(10000)
         self.monitor = xbmc.Monitor()
-        if autocleanup:
-            thread = threading.Thread(target=self.auto_cleanup, args=())
-            thread.daemon = True
-            thread.start()
-        else:
-            self.manual_cleanup()
+        self.enable_mem_cache = allow_mem_cache
+        self.check_cleanup()
         self.log_msg("Initialized")
 
     def close(self):
@@ -64,7 +60,7 @@ class SimpleCache(object):
         '''
         cur_time = datetime.datetime.now()
         # 1: try memory cache first - only for objects that can be accessed by the same instance calling the addon!
-        if endpoint in self.mem_cache:
+        if self.enable_mem_cache and endpoint in self.mem_cache:
             cachedata = self.mem_cache[endpoint]
             if not checksum or checksum == cachedata["checksum"]:
                 return cachedata["data"]
@@ -95,7 +91,6 @@ class SimpleCache(object):
             data: the data to store in the cache(can be any serializable python object)
             checkum: optional checksum to store in the cache
             expiration: set expiration of the object in the cache as timedelta
-            mem_cache: optional bool - store in memory instead of window props - practical if used within same instance
         '''
         thread.start_new_thread(self.set_internal, (endpoint, data, checksum, expiration, mem_cache))
 
@@ -108,29 +103,25 @@ class SimpleCache(object):
         cur_time = datetime.datetime.now()
         self.busy_tasks.append(cur_time)
         cachedata = {"date": cur_time, "endpoint": endpoint, "checksum": checksum, "data": data}
-        memory_expiration = datetime.timedelta(minutes=self.auto_clean_interval)
+        memory_expiration = datetime.timedelta(hours=self.auto_clean_interval)
 
-        if expiration < memory_expiration:
-            mem_expires = cur_time + expiration
-        else:
-            mem_expires = cur_time + memory_expiration
-        cachedata["expires"] = mem_expires
+        cachedata["expires"] = cur_time + expiration
 
         # save in memory cache - only if allowed
-        if mem_cache and not self.exit:
+        if self.enable_mem_cache and not self.exit:
             self.mem_cache[endpoint] = cachedata
-        elif not self.exit:
-            # window property cache
+        else:
+            # window property cache as alternative for memory cache - usefull for (stateless) plugins
             # writes the data both in it's own self.win property and to a global list
-            # the global list is used to determine when objects should be deleted from the memory cache
+            # the global list is used to determine which objects exist in memory cache
             cachedata_str = repr(cachedata).encode("utf-8")
-            if self.enable_win_cache:
+            if self.enable_win_cache and not self.exit:
                 all_win_cache_objects = self.win.getProperty("script.module.simplecache.cacheobjects").decode("utf-8")
                 if all_win_cache_objects:
                     all_win_cache_objects = eval(all_win_cache_objects)
                 else:
                     all_win_cache_objects = []
-                all_win_cache_objects.append((cache_name, mem_expires))
+                all_win_cache_objects.append((cache_name))
                 self.win.setProperty("script.module.simplecache.cacheobjects",
                                      repr(all_win_cache_objects).encode("utf-8"))
                 self.win.setProperty(cache_name.encode("utf-8"), cachedata_str)
@@ -142,39 +133,26 @@ class SimpleCache(object):
             cachedata_str = repr(cachedata).encode("utf-8")
             if not xbmcvfs.exists(DEFAULTCACHEPATH):
                 xbmcvfs.mkdirs(DEFAULTCACHEPATH)
-
             cachefile = self.get_cache_file(endpoint)
             _file = xbmcvfs.File(cachefile.encode("utf-8"), 'w')
             cachedata = zlib.compress(cachedata_str)
             _file.write(cachedata)
             _file.close()
             del _file
-        # remove task from list
+            
+        # remove this task from list
         self.busy_tasks.remove(cur_time)
+        # always check if a cleanup is needed
+        self.check_cleanup()
 
-    def auto_cleanup(self):
-        '''auto cleanup to remove any expired cache objects - usefull for services'''
-        self.log_msg("Auto cleanup backgroundworker started...")
-        self.busy_tasks.append("auto_cleanup")
-        cur_tick = 0
-        while not (self.exit or self.monitor.abortRequested()):
-            if cur_tick == self.auto_clean_interval:
-                cur_tick = 0
-                self.do_cleanup()
-            else:
-                cur_tick += 5
-            self.monitor.waitForAbort(5)
-        self.busy_tasks.remove("auto_cleanup")
-        self.log_msg("Auto cleanup backgroundworker stopped...")
-
-    def manual_cleanup(self):
-        '''manual cleanup to start only at initialization if autoclean worker is disabled - usefull for plugins'''
+    def check_cleanup(self):
+        '''check if cleanup is needed'''
         cur_time = datetime.datetime.now()
         lastexecuted = self.win.getProperty("simplecache.clean.lastexecuted")
-        memory_expiration = datetime.timedelta(seconds=self.auto_clean_interval)
+        cleanup_interval = datetime.timedelta(hours=self.auto_clean_interval)
         if not lastexecuted:
             self.win.setProperty("simplecache.clean.lastexecuted", repr(cur_time))
-        elif (eval(lastexecuted) + memory_expiration) < cur_time:
+        elif (eval(lastexecuted) + cleanup_interval) < cur_time:
             # cleanup needed...
             self.do_cleanup()
 
@@ -188,28 +166,18 @@ class SimpleCache(object):
         self.log_msg("Running cleanup...", xbmc.LOGNOTICE)
 
         # cleanup memory cache objects
-        keys_to_delete = []
-        for key, value in self.mem_cache.iteritems():
-            if value["expires"] < cur_time:
-                keys_to_delete.append(key)
-        temp_dict = dict(self.mem_cache)
-        for key in keys_to_delete:
-            del temp_dict[key]
-        self.mem_cache = temp_dict
+        self.mem_cache = {}
 
         # cleanup winprops cache objects
         all_win_cache_objects = self.win.getProperty("script.module.simplecache.cacheobjects").decode("utf-8")
         if all_win_cache_objects and not self.exit:
             cache_objects = []
             for item in eval(all_win_cache_objects):
-                if item[1] <= cur_time:
-                    self.win.clearProperty(item[0].encode("utf-8"))
-                else:
-                    cache_objects.append(item)
+                self.win.clearProperty(item.encode("utf-8"))
                 if self.exit:
                     break
-            # Store our list with cacheobjects again
-            self.win.setProperty("script.module.simplecache.cacheobjects", repr(cache_objects).encode("utf-8"))
+            # also clear our global list
+            self.win.clearProperty("script.module.simplecache.cacheobjects")
 
         # cleanup file cache objects
         if xbmcvfs.exists(DEFAULTCACHEPATH) and not self.exit:
@@ -278,7 +246,7 @@ class SimpleCache(object):
         xbmc.log("Skin Helper Simplecache --> %s" % msg, level=loglevel)
 
 
-def use_cache(cache_days=14, mem_cache=False):
+def use_cache(cache_days=14):
     '''
         wrapper around our simple cache to use as decorator
         Usage: define an instance of SimpleCache with name "cache" (self.cache) in your class
@@ -307,8 +275,7 @@ def use_cache(cache_days=14, mem_cache=False):
                 return cachedata
             else:
                 result = func(*args, **kwargs)
-                method_class.cache.set(cache_str, result, expiration=datetime.timedelta(days=cache_days),
-                                       mem_cache=mem_cache)
+                method_class.cache.set(cache_str, result, expiration=datetime.timedelta(days=cache_days))
                 return result
         return decorated
     return decorator
