@@ -40,8 +40,9 @@ class SimpleCache(object):
 
     def close(self):
         '''tell any tasks to stop immediately (as we can be called multithreaded) and cleanup objects'''
-        self.win.setProperty("script.module.simplecache.cacheobjects",
-            repr(self.all_win_cache_objects).encode("utf-8"))
+        if self.win:
+            self.win.setProperty("script.module.simplecache.cacheobjects",
+                repr(self.all_win_cache_objects).encode("utf-8"))
         self.exit = True
         # wait for all tasks to complete
         while self.busy_tasks:
