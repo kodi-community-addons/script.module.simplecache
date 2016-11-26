@@ -64,7 +64,7 @@ class SimpleCache(object):
             result = self.get_mem_cache(endpoint, checksum, cur_time)
 
         # 2: fallback to database cache
-        if not result:
+        if result == None:
             result = self.get_db_cache(endpoint, checksum, cur_time)
 
         return result
