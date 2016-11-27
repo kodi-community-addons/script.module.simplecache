@@ -64,7 +64,7 @@ class SimpleCache(object):
             result = self.get_mem_cache(endpoint, checksum, cur_time)
 
         # 2: fallback to database cache
-        if result == None:
+        if result is None:
             result = self.get_db_cache(endpoint, checksum, cur_time)
 
         return result
@@ -149,27 +149,32 @@ class SimpleCache(object):
             return
         self.busy_tasks.append(__name__)
         cur_time = datetime.datetime.now()
-        self.win.setProperty("simplecache.clean.lastexecuted", repr(cur_time))
-        cur_time = self.get_timestamp(cur_time)
+        cur_timestamp = self.get_timestamp(cur_time)
         self.log_msg("Running cleanup...")
+        if self.win.getProperty("simplecachecleanbusy"):
+            return
+        self.win.setProperty("simplecachecleanbusy", "busy")
 
         query = "SELECT id, expires FROM simplecache"
-        for cache_data in self.database.execute(query).fetchall():
-
+        for cache_data in self.execute_sql(query).fetchall():
             if self.exit or self.monitor.abortRequested():
                 return
-
             # always cleanup all memory objects on each interval
             self.win.clearProperty(cache_data[0].encode("utf-8"))
-
             # clean up db cache object only if expired
-            if cache_data[1] < cur_time:
+            if cache_data[1] < cur_timestamp:
                 query = 'DELETE FROM simplecache WHERE id = ?'
                 self.execute_sql(query, (cache_data[0],))
+                self.log_msg("delete from db %s" % cache_data[0])
 
-        self.log_msg("Auto cleanup done")
+        # compact db
+        self.execute_sql("VACUUM")
+
         # remove task from list
         self.busy_tasks.remove(__name__)
+        self.win.setProperty("simplecache.clean.lastexecuted", repr(cur_time))
+        self.win.clearProperty("simplecachecleanbusy")
+        self.log_msg("Auto cleanup done")
 
     def get_database(self):
         '''get reference to our sqllite database - performs basic integrity check'''
