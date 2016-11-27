@@ -26,7 +26,6 @@ class SimpleCache(object):
         '''Initialize our caching class'''
         self.win = xbmcgui.Window(10000)
         self.monitor = xbmc.Monitor()
-        self.database = self.get_database()
         self.check_legacy()
         self.check_cleanup()
         self.log_msg("Initialized")
@@ -39,8 +38,6 @@ class SimpleCache(object):
             xbmc.sleep(25)
         self.win = None
         self.monitor = None
-        if self.database:
-            self.database.close()
         del self.win
         del self.monitor
         self.log_msg("Closed")
@@ -246,30 +243,29 @@ class SimpleCache(object):
         retries = 0
         result = None
         error = None
-        # make sure that multiple threads are using their own version of the database object
-        if isinstance(threading.current_thread(), threading._MainThread):
-            database = self.database
-        else:
-            database = self.get_database()
-        while not retries == 10:
-            try:
-                if isinstance(data, list):
-                    result = database.executemany(query, data)
-                elif data:
-                    result = database.execute(query, data)
-                else:
-                    result = database.execute(query)
-                return result
-            except sqlite3.OperationalError as error:
-                if "database is locked" in error:
-                    self.log_msg("retrying DB commit...")
-                    retries += 1
-                    self.monitor.waitForAbort(0.5)
-                else:
+        # always use new db object because we need to be sure that data is available for other simplecache instances
+        with self.get_database() as database:
+            while not retries == 10:
+                if self.exit:
+                    return None
+                try:
+                    if isinstance(data, list):
+                        result = database.executemany(query, data)
+                    elif data:
+                        result = database.execute(query, data)
+                    else:
+                        result = database.execute(query)
+                    return result
+                except sqlite3.OperationalError as error:
+                    if "database is locked" in error:
+                        self.log_msg("retrying DB commit...")
+                        retries += 1
+                        self.monitor.waitForAbort(0.5)
+                    else:
+                        break
+                except Exception as error:
                     break
-            except Exception as error:
-                break
-        self.log_msg("Database ERROR ! -- %s" % str(error), xbmc.LOGWARNING)
+            self.log_msg("Database ERROR ! -- %s" % str(error), xbmc.LOGWARNING)
         return None
 
     @staticmethod
