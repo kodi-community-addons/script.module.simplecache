@@ -53,7 +53,7 @@ class SimpleCache(object):
             endpoint: the (unique) name of the cache object as reference
             checkum: optional argument to check if the checksum in the cacheobject matches the checkum provided
         '''
-        checksum = len(repr(checksum)) if checksum else 0
+        checksum = self.get_checksum(checksum)
         cur_time = self.get_timestamp(datetime.datetime.now())
 
         # 1: try memory cache first
@@ -72,7 +72,7 @@ class SimpleCache(object):
         '''
         task_name = "set.%s" % endpoint
         self.busy_tasks.append(task_name)
-        checksum = len(repr(checksum)) if checksum else 0
+        checksum = self.get_checksum(checksum)
         expires = self.get_timestamp(datetime.datetime.now() + expiration)
 
         # memory cache: write to window property
@@ -279,6 +279,15 @@ class SimpleCache(object):
     def get_timestamp(date_time):
         '''Converts a datetime object to unix timestamp'''
         return int(time.mktime(date_time.timetuple()))
+        
+    @staticmethod
+    def get_checksum(stringinput):
+        '''get int checksum from string'''
+        if not stringinput:
+            return 0
+        stringinput = str(stringinput)
+        return reduce(lambda x,y:x+y, map(ord, stringinput))
+
 
 
 def use_cache(cache_days=14):
