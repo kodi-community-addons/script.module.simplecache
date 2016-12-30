@@ -9,7 +9,7 @@ import xbmc
 import datetime
 import time
 import sqlite3
-import threading
+from functools import reduce
 
 
 class SimpleCache(object):
@@ -26,7 +26,6 @@ class SimpleCache(object):
         '''Initialize our caching class'''
         self.win = xbmcgui.Window(10000)
         self.monitor = xbmc.Monitor()
-        self.check_legacy()
         self.check_cleanup()
         self.log_msg("Initialized")
 
@@ -197,47 +196,6 @@ class SimpleCache(object):
                 self.close()
                 return None
 
-    def check_legacy(self):
-        '''TEMP: check for legacy cache files and import them'''
-        if not self.win.getProperty("simplecache.legacycheck"):
-            self.win.setProperty("simplecache.legacycheck", "done")
-            self.busy_tasks.append(__name__)
-            legacy_cache_path = "special://profile/addon_data/script.module.simplecache/"
-            if xbmcvfs.exists(legacy_cache_path) and not self.exit:
-                self.log_msg("Running cache conversion...", xbmc.LOGNOTICE)
-                cur_time = datetime.datetime.now()
-                import zlib
-                cachefiles = xbmcvfs.listdir(legacy_cache_path)[1]
-                new_cacheobjects = []
-                for filename in cachefiles:
-                    # check filebased cache for expired items
-                    try:
-                        if self.exit or self.monitor.abortRequested():
-                            break
-                        cachefile = legacy_cache_path + filename
-                        fileobj = xbmcvfs.File(cachefile, 'r')
-                        text = fileobj.read()
-                        fileobj.close()
-                        del fileobj
-                        xbmcvfs.delete(cachefile)
-                        text = zlib.decompress(text).decode("utf-8")
-                        data = eval(text)
-                        if data["expires"] > cur_time:
-                            expires = self.get_timestamp(data["expires"])
-                            checksum = len(repr(data["checksum"])) if data["checksum"] else 0
-                            endpoint = data["endpoint"]
-                            data = data["data"]
-                            new_cacheobjects.append((endpoint, expires, repr(data), checksum))
-                    except Exception as exc:
-                        self.log_msg(str(exc), xbmc.LOGWARNING)
-                if new_cacheobjects:
-                    query = "INSERT OR IGNORE INTO simplecache( id, expires, data, checksum) VALUES (?, ?, ?, ?)"
-                    self.execute_sql(query, new_cacheobjects)
-
-                xbmcvfs.rmdir(legacy_cache_path)
-                self.log_msg("Cache conversion done", xbmc.LOGNOTICE)
-            self.busy_tasks.remove(__name__)
-
     def execute_sql(self, query, data=None):
         '''little wrapper around execute and executemany to just retry a db command if db is locked'''
         retries = 0
@@ -279,15 +237,14 @@ class SimpleCache(object):
     def get_timestamp(date_time):
         '''Converts a datetime object to unix timestamp'''
         return int(time.mktime(date_time.timetuple()))
-        
+
     @staticmethod
     def get_checksum(stringinput):
         '''get int checksum from string'''
         if not stringinput:
             return 0
         stringinput = str(stringinput)
-        return reduce(lambda x,y:x+y, map(ord, stringinput))
-
+        return reduce(lambda x, y: x + y, map(ord, stringinput))
 
 
 def use_cache(cache_days=14):
