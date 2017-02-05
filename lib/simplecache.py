@@ -174,19 +174,26 @@ class SimpleCache(object):
 
     def get_database(self):
         '''get reference to our sqllite database - performs basic integrity check'''
+        dbpath = "special://userdata/addon_data/script.module.simplecache/"
+        dbfile = xbmc.translatePath("%s/simplecache.db" % dbpath).decode('utf-8')
         try:
-            dbpath = xbmc.translatePath("special://database/simplecache.db").decode('utf-8')
-            connection = sqlite3.connect(dbpath, timeout=30, isolation_level=None)
+            connection = sqlite3.connect(dbfile, timeout=30, isolation_level=None)
             connection.execute('SELECT * FROM simplecache LIMIT 1')
             return connection
         except Exception as error:
             # our database is corrupt or doesn't exist yet, we simply try to recreate it
-            connection.close()
-            del connection
-            xbmcvfs.delete(dbpath)
-            xbmc.sleep(500)
+            if xbmcvfs.exists(dbfile):
+                xbmcvfs.delete(dbfile)
+            if not xbmcvfs.exists(dbpath):
+                xbmcvfs.mkdir(dbpath)
+            # migrate from previous location (as used in beta but not allowed in production)
+            dbfile_legacy = "special://database/simplecache.db"
+            if xbmcvfs.exists(dbfile_legacy):
+                if not xbmcvfs.rename(dbfile_legacy, dbfile):
+                    xbmcvfs.delete(dbfile_legacy)
+            xbmc.sleep(500) # allow the OS some time to process the file changes
             try:
-                connection = sqlite3.connect(dbpath, timeout=30, isolation_level=None)
+                connection = sqlite3.connect(dbfile, timeout=30, isolation_level=None)
                 connection.execute(
                     """CREATE TABLE IF NOT EXISTS simplecache(
                     id TEXT UNIQUE, expires INTEGER, data TEXT, checksum INTEGER)""")
