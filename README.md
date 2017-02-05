@@ -19,7 +19,7 @@ Now, to use it in your Kodi addon/script, make sure to import it and you can acc
 import simplecache
 
 #get data from cache
-mycache = simplecache.get("MyChunkOfData")
+mycache = simplecache.get("MyAddon.MyChunkOfData")
 if mycache:
     my_objects = mycache
 else:
@@ -27,10 +27,10 @@ else:
     my_objects = mymethod()
     
     #write results in cache
-    simplecache.set( "MyChunkOfData", my_objects, expiration=datetime.timedelta(hours=12))
+    simplecache.set( "MyAddon.MyChunkOfData", my_objects, expiration=datetime.timedelta(hours=12))
 ```
 
-The above example will check the cache for the key "MyChunkOfData". If there is any data (and the cache is not expired) it will be returned as the original object.
+The above example will check the cache for the key "MyAddon.MyChunkOfData". If there is any data (and the cache is not expired) it will be returned as the original object.
 
 If the cache is empty, you perform the usual stuff to get the data and save that to the cache
 
@@ -47,7 +47,7 @@ If the cache is empty, you perform the usual stuff to get the data and save that
     checksum --> Optional argument to check for a checksum in the file (Will only work if you store the checksum with the set method). Can be any python object which can be serialized with eval.
     
     
-    Example: simplecache.get("MyChunkOfData", checksum=len(myvideos))
+    Example: simplecache.get("MyAddon.MyChunkOfData", checksum=len(myvideos))
     
     This example will return the data in the cache but only if the length of the list myvideos is the same as whatever is stored as checksum in the cache.
     
@@ -73,13 +73,13 @@ If the cache is empty, you perform the usual stuff to get the data and save that
 
 1) By default objects will be stored both in memory and on disk, it is however possible to override that:
 ```
-    simplecache.use_memory_cache = True
-    simplecache.use_file_cache = True
+    simplecache.use_memory_cache = False
 ```
+In that case, objects will only be stored on disk (database)
 
 
 2) Cache objects are auto cleaned from memory after 2 hours to prevent unused objects loaded in memory.
 
 
-3) Cache objects on disk are stored as small gzip encoded textfiles. These files are auto cleaned up when the cache expires.
+3) Cache objects on disk are stored in a self-maintaining sqllite database. Expired objects will be auto cleaned from the database.
 
