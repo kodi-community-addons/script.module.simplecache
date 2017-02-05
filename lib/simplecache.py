@@ -186,12 +186,6 @@ class SimpleCache(object):
                 xbmcvfs.delete(dbfile)
             if not xbmcvfs.exists(dbpath):
                 xbmcvfs.mkdir(dbpath)
-            # migrate from previous location (as used in beta but not allowed in production)
-            dbfile_legacy = "special://database/simplecache.db"
-            if xbmcvfs.exists(dbfile_legacy):
-                if not xbmcvfs.rename(dbfile_legacy, dbfile):
-                    xbmcvfs.delete(dbfile_legacy)
-            xbmc.sleep(500) # allow the OS some time to process the file changes
             try:
                 connection = sqlite3.connect(dbfile, timeout=30, isolation_level=None)
                 connection.execute(
