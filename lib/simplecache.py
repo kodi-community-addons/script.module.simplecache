@@ -6,10 +6,13 @@
 import xbmcvfs
 import xbmcgui
 import xbmc
+import xbmcaddon
 import datetime
 import time
 import sqlite3
 from functools import reduce
+
+ADDON_ID = "script.module.simplecache"
 
 
 class SimpleCache(object):
@@ -174,8 +177,10 @@ class SimpleCache(object):
 
     def get_database(self):
         '''get reference to our sqllite database - performs basic integrity check'''
-        dbpath = "special://userdata/addon_data/script.module.simplecache/"
+        addon = xbmcaddon.Addon(ADDON_ID)
+        dbpath = addon.getAddonInfo('profile')
         dbfile = xbmc.translatePath("%s/simplecache.db" % dbpath).decode('utf-8')
+        del addon
         try:
             connection = sqlite3.connect(dbfile, timeout=30, isolation_level=None)
             connection.execute('SELECT * FROM simplecache LIMIT 1')
