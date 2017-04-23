@@ -57,7 +57,7 @@ class SimpleCache(object):
         '''
         checksum = self.get_checksum(checksum)
         cur_time = self.get_timestamp(datetime.datetime.now())
-
+        result = None
         # 1: try memory cache first
         if self.enable_mem_cache:
             result = self.get_mem_cache(endpoint, checksum, cur_time)
