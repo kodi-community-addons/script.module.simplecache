@@ -180,6 +180,8 @@ class SimpleCache(object):
         addon = xbmcaddon.Addon(ADDON_ID)
         dbpath = addon.getAddonInfo('profile')
         dbfile = xbmc.translatePath("%s/simplecache.db" % dbpath).decode('utf-8')
+        if not xbmcvfs.exists(dbpath):
+            xbmcvfs.mkdirs(dbpath)
         del addon
         try:
             connection = sqlite3.connect(dbfile, timeout=30, isolation_level=None)
@@ -189,8 +191,6 @@ class SimpleCache(object):
             # our database is corrupt or doesn't exist yet, we simply try to recreate it
             if xbmcvfs.exists(dbfile):
                 xbmcvfs.delete(dbfile)
-            if not xbmcvfs.exists(dbpath):
-                xbmcvfs.mkdir(dbpath)
             try:
                 connection = sqlite3.connect(dbfile, timeout=30, isolation_level=None)
                 connection.execute(
