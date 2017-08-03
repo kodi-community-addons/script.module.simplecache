@@ -1,4 +1,7 @@
 # script.module.simplecache
+
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/5e223503667f4a35a791d140f2cb6285)](https://www.codacy.com/app/m-vanderveldt/script-module-simplecache?utm_source=github.com&utm_medium=referral&utm_content=marcelveldt/script.module.simplecache&utm_campaign=badger)
+
 A simple object cache for Kodi addons
 
 
