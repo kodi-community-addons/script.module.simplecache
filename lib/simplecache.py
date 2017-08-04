@@ -142,7 +142,7 @@ class SimpleCache(object):
 
     def _do_cleanup(self):
         '''perform cleanup task'''
-        if self._exit or self.monitor.abortRequested():
+        if self._exit or self._monitor.abortRequested():
             return
         self._busy_tasks.append(__name__)
         cur_time = datetime.datetime.now()
@@ -154,7 +154,7 @@ class SimpleCache(object):
 
         query = "SELECT id, expires FROM simplecache"
         for cache_data in self._execute_sql(query).fetchall():
-            if self._exit or self.monitor.abortRequested():
+            if self._exit or self._monitor.abortRequested():
                 return
             # always cleanup all memory objects on each interval
             self._win.clearProperty(cache_data[0].encode("utf-8"))
@@ -222,7 +222,7 @@ class SimpleCache(object):
                     if "_database is locked" in error:
                         self._log_msg("retrying DB commit...")
                         retries += 1
-                        self.monitor.waitForAbort(0.5)
+                        self._monitor.waitForAbort(0.5)
                     else:
                         break
                 except Exception as error:
