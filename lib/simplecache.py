@@ -154,15 +154,17 @@ class SimpleCache(object):
 
         query = "SELECT id, expires FROM simplecache"
         for cache_data in self._execute_sql(query).fetchall():
+            cache_id = cache_data[0]
+            cache_expires = cache_data[1]
             if self._exit or self._monitor.abortRequested():
                 return
             # always cleanup all memory objects on each interval
-            self._win.clearProperty(cache_data[0].encode("utf-8"))
+            self._win.clearProperty(cache_id.encode("utf-8"))
             # clean up db cache object only if expired
-            if cache_data[1] < cur_timestamp:
+            if cache_expires < cur_timestamp:
                 query = 'DELETE FROM simplecache WHERE id = ?'
-                self._execute_sql(query, (cache_data[0],))
-                self._log_msg("delete from db %s" % cache_data[0])
+                self._execute_sql(query, (cache_id,))
+                self._log_msg("delete from db %s" % cache_id)
 
         # compact db
         self._execute_sql("VACUUM")
