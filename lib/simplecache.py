@@ -3,10 +3,7 @@
 
 '''provides a simple stateless caching system for Kodi addons and plugins'''
 
-import xbmcvfs
-import xbmcgui
-import xbmc
-import xbmcaddon
+from kodi_six import xbmcvfs, xbmcgui, xbmc, xbmcaddon
 import datetime
 import time
 import sqlite3
@@ -102,7 +99,7 @@ class SimpleCache(object):
             we use window properties because we need to be stateless
         '''
         result = None
-        cachedata = self._win.getProperty(endpoint.encode("utf-8"))
+        cachedata = self._win.getProperty(endpoint)
         if cachedata:
             cachedata = eval(cachedata)
             if cachedata[0] > cur_time:
@@ -116,8 +113,8 @@ class SimpleCache(object):
             usefull for (stateless) plugins
         '''
         cachedata = (expires, data, checksum)
-        cachedata_str = repr(cachedata).encode("utf-8")
-        self._win.setProperty(endpoint.encode("utf-8"), cachedata_str)
+        cachedata_str = repr(cachedata)
+        self._win.setProperty(endpoint, cachedata_str)
 
     def _get_db_cache(self, endpoint, checksum, cur_time):
         '''get cache data from sqllite _database'''
@@ -159,7 +156,7 @@ class SimpleCache(object):
             if self._exit or self._monitor.abortRequested():
                 return
             # always cleanup all memory objects on each interval
-            self._win.clearProperty(cache_id.encode("utf-8"))
+            self._win.clearProperty(cache_id)
             # clean up db cache object only if expired
             if cache_expires < cur_timestamp:
                 query = 'DELETE FROM simplecache WHERE id = ?'
@@ -179,7 +176,7 @@ class SimpleCache(object):
         '''get reference to our sqllite _database - performs basic integrity check'''
         addon = xbmcaddon.Addon(ADDON_ID)
         dbpath = addon.getAddonInfo('profile')
-        dbfile = xbmc.translatePath("%s/simplecache.db" % dbpath).decode('utf-8')
+        dbfile = xbmc.translatePath("%s/simplecache.db" % dbpath)
         if not xbmcvfs.exists(dbpath):
             xbmcvfs.mkdirs(dbpath)
         del addon
@@ -235,8 +232,6 @@ class SimpleCache(object):
     @staticmethod
     def _log_msg(msg, loglevel=xbmc.LOGDEBUG):
         '''helper to send a message to the kodi log'''
-        if isinstance(msg, unicode):
-            msg = msg.encode('utf-8')
         xbmc.log("Skin Helper Simplecache --> %s" % msg, level=loglevel)
 
     @staticmethod
