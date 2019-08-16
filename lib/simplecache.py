@@ -102,7 +102,12 @@ class SimpleCache(object):
             we use window properties because we need to be stateless
         '''
         result = None
-        cachedata = self._win.getProperty(endpoint.encode("utf-8"))
+
+        try:
+            cachedata = self._win.getProperty(endpoint.encode("utf-8"))
+        except TypeError: # Python 3 compatiblity
+            cachedata = self._win.getProperty(endpoint)
+
         if cachedata:
             cachedata = eval(cachedata)
             if cachedata[0] > cur_time:
@@ -116,8 +121,14 @@ class SimpleCache(object):
             usefull for (stateless) plugins
         '''
         cachedata = (expires, data, checksum)
-        cachedata_str = repr(cachedata).encode("utf-8")
-        self._win.setProperty(endpoint.encode("utf-8"), cachedata_str)
+
+        try:
+            cachedata_str = repr(cachedata).encode("utf-8")
+            self._win.setProperty(endpoint.encode("utf-8"), cachedata_str)
+        except Exception: # Python 3 compatiblity
+            cachedata_str = repr(cachedata)
+            self._win.setProperty(endpoint, cachedata_str)
+
 
     def _get_db_cache(self, endpoint, checksum, cur_time):
         '''get cache data from sqllite _database'''
@@ -179,7 +190,12 @@ class SimpleCache(object):
         '''get reference to our sqllite _database - performs basic integrity check'''
         addon = xbmcaddon.Addon(ADDON_ID)
         dbpath = addon.getAddonInfo('profile')
-        dbfile = xbmc.translatePath("%s/simplecache.db" % dbpath).decode('utf-8')
+
+        try:
+            dbfile = xbmc.translatePath("%s/simplecache.db" % dbpath).decode('utf-8')
+        except AttributeError: # Python 3 compatiblity
+            dbfile = xbmc.translatePath("%s/simplecache.db" % dbpath)
+
         if not xbmcvfs.exists(dbpath):
             xbmcvfs.mkdirs(dbpath)
         del addon
@@ -235,8 +251,13 @@ class SimpleCache(object):
     @staticmethod
     def _log_msg(msg, loglevel=xbmc.LOGDEBUG):
         '''helper to send a message to the kodi log'''
-        if isinstance(msg, unicode):
-            msg = msg.encode('utf-8')
+        
+        try:
+            if isinstance(msg, unicode):
+                msg = msg.encode('utf-8')
+        except NameError: # Python 3 compatiblity
+            pass
+
         xbmc.log("Skin Helper Simplecache --> %s" % msg, level=loglevel)
 
     @staticmethod
