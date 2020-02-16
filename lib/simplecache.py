@@ -14,7 +14,6 @@ import sqlite3
 from functools import reduce
 
 ADDON_ID = "script.module.simplecache"
-PYTHON3 = True if sys.version_info.major == 3 else False
 
 class SimpleCache(object):
     '''simple stateless caching system for Kodi'''
@@ -103,11 +102,7 @@ class SimpleCache(object):
             we use window properties because we need to be stateless
         '''
         result = None
-
-        if not PYTHON3:
-            cachedata = self._win.getProperty(endpoint.encode("utf-8"))
-        else:
-            cachedata = self._win.getProperty(endpoint)
+        cachedata = self._win.getProperty(endpoint)
 
         if cachedata:
             cachedata = eval(cachedata)
@@ -122,13 +117,8 @@ class SimpleCache(object):
             usefull for (stateless) plugins
         '''
         cachedata = (expires, data, checksum)
-
-        if not PYTHON3:
-            cachedata_str = repr(cachedata).encode("utf-8")
-            self._win.setProperty(endpoint.encode("utf-8"), cachedata_str)
-        else:
-            cachedata_str = repr(cachedata)
-            self._win.setProperty(endpoint, cachedata_str)
+        cachedata_str = repr(cachedata)
+        self._win.setProperty(endpoint, cachedata_str)
 
 
     def _get_db_cache(self, endpoint, checksum, cur_time):
@@ -168,13 +158,13 @@ class SimpleCache(object):
         for cache_data in self._execute_sql(query).fetchall():
             cache_id = cache_data[0]
             cache_expires = cache_data[1]
+
             if self._exit or self._monitor.abortRequested():
                 return
+
             # always cleanup all memory objects on each interval
-            if not PYTHON3:
-                self._win.clearProperty(cache_id.encode("utf-8"))
-            else:
-                self._win.clearProperty(cache_id)
+            self._win.clearProperty(cache_id)
+
             # clean up db cache object only if expired
             if cache_expires < cur_timestamp:
                 query = 'DELETE FROM simplecache WHERE id = ?'
@@ -194,11 +184,7 @@ class SimpleCache(object):
         '''get reference to our sqllite _database - performs basic integrity check'''
         addon = xbmcaddon.Addon(ADDON_ID)
         dbpath = addon.getAddonInfo('profile')
-
-        if not PYTHON3:
-            dbfile = xbmc.translatePath("%s/simplecache.db" % dbpath).decode('utf-8')
-        else:
-            dbfile = xbmc.translatePath("%s/simplecache.db" % dbpath)
+        dbfile = xbmc.translatePath("%s/simplecache.db" % dbpath)
 
         if not xbmcvfs.exists(dbpath):
             xbmcvfs.mkdirs(dbpath)
@@ -255,9 +241,6 @@ class SimpleCache(object):
     @staticmethod
     def _log_msg(msg, loglevel=xbmc.LOGDEBUG):
         '''helper to send a message to the kodi log'''
-        if not PYTHON3 and isinstance(msg, unicode):
-            msg = msg.encode('utf-8')
-
         xbmc.log("Skin Helper Simplecache --> %s" % msg, level=loglevel)
 
     @staticmethod
