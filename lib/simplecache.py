@@ -184,7 +184,7 @@ class SimpleCache(object):
         '''get reference to our sqllite _database - performs basic integrity check'''
         addon = xbmcaddon.Addon(ADDON_ID)
         dbpath = addon.getAddonInfo('profile')
-        dbfile = xbmc.translatePath("%s/simplecache.db" % dbpath)
+        dbfile = xbmcvfs.translatePath("%s/simplecache.db" % dbpath)
 
         if not xbmcvfs.exists(dbpath):
             xbmcvfs.mkdirs(dbpath)
